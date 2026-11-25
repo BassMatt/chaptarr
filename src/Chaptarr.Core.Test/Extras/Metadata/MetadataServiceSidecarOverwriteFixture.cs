@@ -333,7 +333,7 @@ namespace Chaptarr.Core.Test.Extras.Metadata
                 otherExtraFileRenamer: NoOp<IOtherExtraFileRenamer>(),
                 metadataFactory: null,
                 cleanMetadataService: null,
-                httpClient: Throwing<IHttpClient>(),
+                httpClient: Throwing<ICoverHttpClient>(),
                 mediaFileAttributeService: NoOp<IMediaFileAttributeService>(),
                 metadataFileService: disk.MetadataFileService,
                 bookService: null,

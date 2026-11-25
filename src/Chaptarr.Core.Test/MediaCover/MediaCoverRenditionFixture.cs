@@ -403,7 +403,7 @@ namespace Chaptarr.Core.Test.MediaCover
             bookService.EligibleLibraryBookIds.AddRange(eligibleBookIds ?? Enumerable.Empty<int>());
             var diskApi = DispatchProxy.Create<IDiskProvider, DiskProviderProxy>();
             disk = (DiskProviderProxy)(object)diskApi;
-            var httpApi = DispatchProxy.Create<IHttpClient, ImageHttpClientProxy>();
+            var httpApi = DispatchProxy.Create<ICoverHttpClient, ImageHttpClientProxy>();
             httpClient = (ImageHttpClientProxy)(object)httpApi;
             var deferredApi = DispatchProxy.Create<IDeferredCoverService, DeferredCoverProxy>();
             deferred = (DeferredCoverProxy)(object)deferredApi;
@@ -991,7 +991,7 @@ namespace Chaptarr.Core.Test.MediaCover
             var appFolder = DispatchProxy.Create<IAppFolderInfo, AppFolderProxy>();
             ((AppFolderProxy)(object)appFolder).AppDataFolder = ConfigRoot;
             var diskProvider = DispatchProxy.Create<IDiskProvider, DiskProviderProxy>();
-            var httpClient = DispatchProxy.Create<IHttpClient, ImageHttpClientProxy>();
+            var httpClient = DispatchProxy.Create<ICoverHttpClient, ImageHttpClientProxy>();
             ((ImageHttpClientProxy)(object)httpClient).ResponseData = Convert.FromBase64String(MascotWebpBase64);
             var authorService = DispatchProxy.Create<IAuthorService, AuthorServiceProxy>();
             var subject = new MediaCoverService(
@@ -1039,7 +1039,7 @@ namespace Chaptarr.Core.Test.MediaCover
             ((AppFolderProxy)(object)appFolder).AppDataFolder = ConfigRoot;
             var diskProvider = DispatchProxy.Create<IDiskProvider, DiskProviderProxy>();
             var disk = (DiskProviderProxy)(object)diskProvider;
-            var httpClient = DispatchProxy.Create<IHttpClient, ImageHttpClientProxy>();
+            var httpClient = DispatchProxy.Create<ICoverHttpClient, ImageHttpClientProxy>();
             var authorService = DispatchProxy.Create<IAuthorService, AuthorServiceProxy>();
             const string placeholderUrl = "https://assets.hardcover.app/author/900006/legacy-default.jpg";
             var urlHash = Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(placeholderUrl))).ToLowerInvariant()[..16];
@@ -1085,7 +1085,7 @@ namespace Chaptarr.Core.Test.MediaCover
             ((AppFolderProxy)(object)appFolder).AppDataFolder = ConfigRoot;
             var diskProvider = DispatchProxy.Create<IDiskProvider, DiskProviderProxy>();
             var disk = (DiskProviderProxy)(object)diskProvider;
-            var httpClient = DispatchProxy.Create<IHttpClient, ImageHttpClientProxy>();
+            var httpClient = DispatchProxy.Create<ICoverHttpClient, ImageHttpClientProxy>();
             var responses = (ImageHttpClientProxy)(object)httpClient;
             var mascotBytes = Convert.FromBase64String(MascotWebpBase64);
             var realImageBytes = BuildPngBytes(32, 48, new Rgba32(30, 120, 210));
@@ -1150,7 +1150,7 @@ namespace Chaptarr.Core.Test.MediaCover
                 Path.Combine(ConfigRoot, "MediaCover", "900009", "poster.url")
             });
             disk.TextByPath[Path.Combine(ConfigRoot, "MediaCover", "900009", "poster.url")] = MediaCoverRendition.BuildAuthorCoverIdentity(realUrl, VerifiedRealImageHash);
-            var httpClient = DispatchProxy.Create<IHttpClient, ImageHttpClientProxy>();
+            var httpClient = DispatchProxy.Create<ICoverHttpClient, ImageHttpClientProxy>();
             ((ImageHttpClientProxy)(object)httpClient).ResponseData = Convert.FromBase64String(MascotWebpBase64);
             var authorService = DispatchProxy.Create<IAuthorService, AuthorServiceProxy>();
             var subject = new MediaCoverService(
@@ -1202,7 +1202,7 @@ namespace Chaptarr.Core.Test.MediaCover
                 Path.Combine(ConfigRoot, "MediaCover", "900008", "poster.url")
             });
             disk.TextByPath[Path.Combine(ConfigRoot, "MediaCover", "900008", "poster.url")] = MediaCoverRendition.BuildAuthorCoverIdentity(realUrl, VerifiedRealImageHash);
-            var httpClient = DispatchProxy.Create<IHttpClient, ImageHttpClientProxy>();
+            var httpClient = DispatchProxy.Create<ICoverHttpClient, ImageHttpClientProxy>();
             var subject = new MediaCoverService(
                 mediaCoverProxy: null,
                 resizer: null,
@@ -1248,7 +1248,7 @@ namespace Chaptarr.Core.Test.MediaCover
             ((AppFolderProxy)(object)appFolder).AppDataFolder = ConfigRoot;
             var diskProvider = DispatchProxy.Create<IDiskProvider, DiskProviderProxy>();
             var disk = (DiskProviderProxy)(object)diskProvider;
-            var httpClient = DispatchProxy.Create<IHttpClient, ImageHttpClientProxy>();
+            var httpClient = DispatchProxy.Create<ICoverHttpClient, ImageHttpClientProxy>();
             var config = DispatchProxy.Create<IConfigFileProvider, ConfigFileProxy>();
             var proxy = new MediaCoverProxyStub();
             var remoteUrl = "https://assets.hardcover.app/authors/166157/6390041-L" + sourceExtension;
@@ -1377,7 +1377,7 @@ namespace Chaptarr.Core.Test.MediaCover
             ((AppFolderProxy)(object)appFolder).AppDataFolder = ConfigRoot;
             var diskProvider = DispatchProxy.Create<IDiskProvider, DiskProviderProxy>();
             var disk = (DiskProviderProxy)(object)diskProvider;
-            var httpClient = DispatchProxy.Create<IHttpClient, ImageHttpClientProxy>();
+            var httpClient = DispatchProxy.Create<ICoverHttpClient, ImageHttpClientProxy>();
             var responses = (ImageHttpClientProxy)(object)httpClient;
             const string remoteUrl = "https://assets.hardcover.app/authors/900011/target.jpg";
             const string differentUrl = "https://assets.hardcover.app/authors/900011/Target.jpg";

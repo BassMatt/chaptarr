@@ -168,7 +168,7 @@ namespace Chaptarr.Core.Test.Extras.Metadata
                     nameof(IDiskProvider.CopyFile) => Copy((string)args[0], (string)args[1]),
                     _ => DefaultResult(method)
                 });
-                var http = Proxy<IHttpClient>((method, args) =>
+                var http = Proxy<ICoverHttpClient>((method, args) =>
                 {
                     if (method.Name == nameof(IHttpClient.DownloadFile))
                     {

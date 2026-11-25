@@ -50,7 +50,7 @@ namespace Chaptarr.Core.Test.Http
         [TestCase("169.254.1.2")]
         public void media_cover_policy_should_remain_strict_for_private_or_link_local_targets(string host)
         {
-            Assert.That(MediaCoverUrlSafetyPolicy.IsPrivateOrLocalAddress(IPAddress.Parse(host)), Is.True);
+            Assert.That(PrivateNetworkTargetPolicy.IsPrivateOrLocalAddress(IPAddress.Parse(host)), Is.True);
         }
 
         [TestCase("http://[::]/cover.jpg")]

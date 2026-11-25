@@ -27,12 +27,12 @@ namespace NzbDrone.Core.MediaCover
         private const int MaxImageBytes = 20 * 1024 * 1024;
         private static readonly TimeSpan ImageRequestTimeout = TimeSpan.FromSeconds(30);
 
-        private readonly IHttpClient _httpClient;
+        private readonly ICoverHttpClient _httpClient;
         private readonly IConfigFileProvider _configFileProvider;
         private readonly IConfigService _configService;
         private readonly ICached<string> _cache;
 
-        public MediaCoverProxy(IHttpClient httpClient, IConfigFileProvider configFileProvider, IConfigService configService, ICacheManager cacheManager)
+        public MediaCoverProxy(ICoverHttpClient httpClient, IConfigFileProvider configFileProvider, IConfigService configService, ICacheManager cacheManager)
         {
             _httpClient = httpClient;
             _configFileProvider = configFileProvider;

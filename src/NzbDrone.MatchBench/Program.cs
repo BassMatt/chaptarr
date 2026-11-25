@@ -47,6 +47,7 @@ using NzbDrone.Core.IndexerSearch;
 using NzbDrone.Core.IndexerSearch.Definitions;
 using NzbDrone.Core.Indexers;
 using NzbDrone.Core.Indexers.MyAnonaMouse;
+using NzbDrone.Core.MediaCover;
 using NzbDrone.Core.MediaFiles;
 using NzbDrone.Core.MediaFiles.BookImport;
 using NzbDrone.Core.Qualities;
@@ -588,7 +589,7 @@ namespace NzbDrone.MatchBench
             }
         }
 
-        internal sealed class OfflineReplayIndexerHttpClient : NzbDrone.Common.Http.HttpClient, IIndexerHttpClient, IIndexerHttpClientFactory
+        internal sealed class OfflineReplayIndexerHttpClient : NzbDrone.Common.Http.HttpClient, IIndexerHttpClient, IIndexerHttpClientFactory, ICoverHttpClient
         {
             public OfflineReplayIndexerHttpClient(IEnumerable<IHttpRequestInterceptor> requestInterceptors,
                 ICacheManager cacheManager, IRateLimitService rateLimitService, IHttpDispatcher dispatcher, Logger logger)
@@ -4949,6 +4950,7 @@ WHERE b.Id IN @bookIds
                     {
                         c.Register<IHttpDispatcher, OfflineReplayHttpDispatcher>(Reuse.Singleton, ifAlreadyRegistered: IfAlreadyRegistered.Replace);
                         c.Register<IIndexerHttpClientFactory, OfflineReplayIndexerHttpClient>(Reuse.Singleton, ifAlreadyRegistered: IfAlreadyRegistered.Replace);
+                        c.Register<ICoverHttpClient, OfflineReplayIndexerHttpClient>(Reuse.Singleton, ifAlreadyRegistered: IfAlreadyRegistered.Replace);
                     }
                 })
                 .ConfigureServices(services =>

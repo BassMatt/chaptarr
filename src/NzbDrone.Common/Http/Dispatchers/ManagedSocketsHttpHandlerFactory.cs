@@ -43,6 +43,8 @@ namespace NzbDrone.Common.Http.Dispatchers
             _logger = logger;
         }
 
+        public Func<string, IPAddress, bool> AllowConnectTarget { get; init; }
+
         public SocketsHttpHandler CreateHandler(HttpProxySettings proxySettings,
             bool allowAutoRedirect,
             bool useCookies,
@@ -59,7 +61,6 @@ namespace NzbDrone.Common.Http.Dispatchers
                 Credentials = credentials,
                 PreAuthenticate = preAuthenticate,
                 MaxConnectionsPerServer = maxConnectionsPerServer,
-                ConnectCallback = OnConnectAsync,
                 SslOptions = new SslClientAuthenticationOptions
                 {
                     RemoteCertificateValidationCallback = _certificateValidationService.ShouldByPassValidationError
@@ -70,6 +71,8 @@ namespace NzbDrone.Common.Http.Dispatchers
             {
                 handler.Proxy = _createManagedWebProxy.GetWebProxy(proxySettings);
             }
+
+            handler.ConnectCallback = (context, cancellationToken) => OnConnectAsync(context, handler, cancellationToken);
 
             return handler;
         }
@@ -93,20 +96,30 @@ namespace NzbDrone.Common.Http.Dispatchers
             }
         }
 
-        private async ValueTask<Stream> OnConnectAsync(SocketsHttpConnectionContext context, CancellationToken cancellationToken)
+        private async ValueTask<Stream> OnConnectAsync(SocketsHttpConnectionContext context, SocketsHttpHandler handler, CancellationToken cancellationToken)
         {
+            var allowTarget = AllowConnectTarget != null && !IsProxyConnection(context, handler) ? AllowConnectTarget : null;
+
             if (_useIPv6)
             {
+                var targetRejected = false;
+
                 try
                 {
                     if (!_hasResolvedIPv6Availability)
                     {
                         using var quickFailCts = new CancellationTokenSource(ConnectionEstablishTimeoutMs);
                         using var linkedTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, quickFailCts.Token);
-                        return await AttemptConnection(AddressFamily.InterNetworkV6, context, linkedTokenSource.Token);
+                        return await AttemptConnection(AddressFamily.InterNetworkV6, context, allowTarget, linkedTokenSource.Token);
                     }
 
-                    return await AttemptConnection(AddressFamily.InterNetworkV6, context, cancellationToken);
+                    return await AttemptConnection(AddressFamily.InterNetworkV6, context, allowTarget, cancellationToken);
+                }
+                catch (WebException)
+                {
+                    // A rejected target says nothing about whether IPv6 works.
+                    targetRejected = true;
+                    throw;
                 }
                 catch
                 {
@@ -116,14 +129,51 @@ namespace NzbDrone.Common.Http.Dispatchers
                 }
                 finally
                 {
-                    _hasResolvedIPv6Availability = true;
+                    if (!targetRejected)
+                    {
+                        _hasResolvedIPv6Availability = true;
+                    }
                 }
             }
 
-            return await AttemptConnection(AddressFamily.InterNetwork, context, cancellationToken);
+            return await AttemptConnection(AddressFamily.InterNetwork, context, allowTarget, cancellationToken);
         }
 
-        private static async ValueTask<Stream> AttemptConnection(AddressFamily addressFamily, SocketsHttpConnectionContext context, CancellationToken cancellationToken)
+        private static bool IsProxyConnection(SocketsHttpConnectionContext context, SocketsHttpHandler handler)
+        {
+            if (!handler.UseProxy)
+            {
+                return false;
+            }
+
+            var request = context.InitialRequestMessage;
+            if (request?.Method == HttpMethod.Connect)
+            {
+                return true;
+            }
+
+            var target = request?.RequestUri;
+            var proxy = handler.Proxy ?? System.Net.Http.HttpClient.DefaultProxy;
+            if (target == null || proxy == null || proxy.IsBypassed(target))
+            {
+                return false;
+            }
+
+            var proxyUri = proxy.GetProxy(target);
+            return proxyUri != null &&
+                   proxyUri.Port == context.DnsEndPoint.Port &&
+                   IsSameHost(proxyUri.IdnHost, context.DnsEndPoint.Host);
+        }
+
+        private static bool IsSameHost(string left, string right)
+        {
+            return string.Equals(left?.Trim('[', ']'), right?.Trim('[', ']'), StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static async ValueTask<Stream> AttemptConnection(AddressFamily addressFamily,
+            SocketsHttpConnectionContext context,
+            Func<string, IPAddress, bool> allowTarget,
+            CancellationToken cancellationToken)
         {
             EndPoint endpoint = context.DnsEndPoint;
 
@@ -135,7 +185,7 @@ namespace NzbDrone.Common.Http.Dispatchers
 
             if (endpoint is IPEndPoint ipEndPoint)
             {
-                EnsureAllowedTarget(ipEndPoint.Address, context.DnsEndPoint.Host);
+                EnsureAllowedTarget(ipEndPoint.Address, context.DnsEndPoint.Host, allowTarget);
                 return await ConnectSocket(addressFamily, ipEndPoint, cancellationToken).ConfigureAwait(false);
             }
 
@@ -150,22 +200,35 @@ namespace NzbDrone.Common.Http.Dispatchers
             {
                 resolvedAddresses = await Dns.GetHostAddressesAsync(dnsEndPoint.Host, cancellationToken).ConfigureAwait(false);
             }
-            catch
+            catch when (allowTarget == null)
             {
                 // Fall back to letting the socket resolve if DNS resolution fails here.
                 return await ConnectSocket(addressFamily, dnsEndPoint, cancellationToken).ConfigureAwait(false);
             }
 
+            if (allowTarget != null)
+            {
+                foreach (var address in resolvedAddresses)
+                {
+                    EnsureAllowedTarget(address, dnsEndPoint.Host, allowTarget);
+                }
+            }
+
             var candidates = resolvedAddresses.Where(a => a.AddressFamily == addressFamily).ToArray();
             if (candidates.Length == 0)
             {
+                if (allowTarget != null)
+                {
+                    throw new SocketException((int)SocketError.NoData);
+                }
+
                 return await ConnectSocket(addressFamily, dnsEndPoint, cancellationToken).ConfigureAwait(false);
             }
 
             Exception lastException = null;
             foreach (var address in candidates)
             {
-                EnsureAllowedTarget(address, dnsEndPoint.Host);
+                EnsureAllowedTarget(address, dnsEndPoint.Host, allowTarget);
 
                 try
                 {
@@ -199,9 +262,9 @@ namespace NzbDrone.Common.Http.Dispatchers
             }
         }
 
-        private static void EnsureAllowedTarget(IPAddress ip, string host)
+        private static void EnsureAllowedTarget(IPAddress ip, string host, Func<string, IPAddress, bool> allowTarget)
         {
-            if (CloudMetadataTargetPolicy.IsBlocked(ip))
+            if (CloudMetadataTargetPolicy.IsBlocked(ip) || (allowTarget != null && !allowTarget(host, ip)))
             {
                 throw new WebException($"Request target '{host}' resolved to a disallowed address.", WebExceptionStatus.ProtocolError);
             }

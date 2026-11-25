@@ -169,7 +169,7 @@ namespace Chaptarr.Core.Test.MediaCover
         public void saved_book_proxy_should_resolve_monitored_art_without_registration_after_restart()
         {
             var config = DispatchProxy.Create<IConfigFileProvider, ConfigFileProviderProxy>();
-            var httpClient = DispatchProxy.Create<IHttpClient, HttpClientProxy>();
+            var httpClient = DispatchProxy.Create<ICoverHttpClient, HttpClientProxy>();
             var books = BookServiceWithCover();
             var proxy = new NzbDrone.Core.MediaCover.MediaCoverProxy(httpClient, config, null, new CacheManager());
             var mapper = new MediaCoverProxyMapper(proxy, books, Logger);
@@ -201,7 +201,7 @@ namespace Chaptarr.Core.Test.MediaCover
                 new(MediaCoverTypes.Cover, secondUrl)
             };
             var config = DispatchProxy.Create<IConfigFileProvider, ConfigFileProviderProxy>();
-            var httpClient = DispatchProxy.Create<IHttpClient, HttpClientProxy>();
+            var httpClient = DispatchProxy.Create<ICoverHttpClient, HttpClientProxy>();
             var client = (HttpClientProxy)(object)httpClient;
             switch (failure)
             {
@@ -247,7 +247,7 @@ namespace Chaptarr.Core.Test.MediaCover
         public void oversized_cover_without_an_alternative_should_return_not_found(bool bookRoute)
         {
             var config = DispatchProxy.Create<IConfigFileProvider, ConfigFileProviderProxy>();
-            var httpClient = DispatchProxy.Create<IHttpClient, HttpClientProxy>();
+            var httpClient = DispatchProxy.Create<ICoverHttpClient, HttpClientProxy>();
             ((HttpClientProxy)(object)httpClient).WriteOversizedResponse = true;
             var proxy = new NzbDrone.Core.MediaCover.MediaCoverProxy(httpClient, config, null, new CacheManager());
             var mapper = new MediaCoverProxyMapper(proxy, BookServiceWithCover(), Logger);
@@ -267,7 +267,7 @@ namespace Chaptarr.Core.Test.MediaCover
             const string firstUrl = "https://1.1.1.1/first.jpg";
             const string secondUrl = "https://1.1.1.1/second.jpg";
             var config = DispatchProxy.Create<IConfigFileProvider, ConfigFileProviderProxy>();
-            var httpClient = DispatchProxy.Create<IHttpClient, HttpClientProxy>();
+            var httpClient = DispatchProxy.Create<ICoverHttpClient, HttpClientProxy>();
             var client = (HttpClientProxy)(object)httpClient;
             client.ExceptionsByUrl[firstUrl] = new HttpRequestException("Connection failed");
             client.ExceptionsByUrl[secondUrl] = new HttpRequestException("Connection failed");
@@ -296,7 +296,7 @@ namespace Chaptarr.Core.Test.MediaCover
         {
             const string url = "https://1.1.1.1/error.jpg";
             var config = DispatchProxy.Create<IConfigFileProvider, ConfigFileProviderProxy>();
-            var httpClient = DispatchProxy.Create<IHttpClient, HttpClientProxy>();
+            var httpClient = DispatchProxy.Create<ICoverHttpClient, HttpClientProxy>();
             var client = (HttpClientProxy)(object)httpClient;
             client.ResponseData = empty ? Array.Empty<byte>() : System.Text.Encoding.UTF8.GetBytes("Error");
             client.ContentTypes[url] = contentType;
@@ -320,7 +320,7 @@ namespace Chaptarr.Core.Test.MediaCover
                 new(MediaCoverTypes.Cover, "https://1.1.1.1/safe.jpg")
             };
             var config = DispatchProxy.Create<IConfigFileProvider, ConfigFileProviderProxy>();
-            var httpClient = DispatchProxy.Create<IHttpClient, HttpClientProxy>();
+            var httpClient = DispatchProxy.Create<ICoverHttpClient, HttpClientProxy>();
             var proxy = new NzbDrone.Core.MediaCover.MediaCoverProxy(httpClient, config, null, new CacheManager());
             var mapper = new MediaCoverProxyMapper(proxy, books, Logger);
 
@@ -342,7 +342,7 @@ namespace Chaptarr.Core.Test.MediaCover
                 new(MediaCoverTypes.Cover, "https://1.1.1.1/second.jpg")
             };
             var config = DispatchProxy.Create<IConfigFileProvider, ConfigFileProviderProxy>();
-            var httpClient = DispatchProxy.Create<IHttpClient, HttpClientProxy>();
+            var httpClient = DispatchProxy.Create<ICoverHttpClient, HttpClientProxy>();
             ((HttpClientProxy)(object)httpClient).FailureUrls.UnionWith(new[]
             {
                 "https://1.1.1.1/first.jpg",
@@ -366,7 +366,7 @@ namespace Chaptarr.Core.Test.MediaCover
             book.Editions[0].Images[0].Url = "https://1.1.1.1/unmonitored.jpg";
             book.Editions[1].Images.Clear();
             var config = DispatchProxy.Create<IConfigFileProvider, ConfigFileProviderProxy>();
-            var httpClient = DispatchProxy.Create<IHttpClient, HttpClientProxy>();
+            var httpClient = DispatchProxy.Create<ICoverHttpClient, HttpClientProxy>();
             var proxy = new NzbDrone.Core.MediaCover.MediaCoverProxy(httpClient, config, null, new CacheManager());
             var mapper = new MediaCoverProxyMapper(proxy, books, Logger);
 
@@ -398,7 +398,7 @@ namespace Chaptarr.Core.Test.MediaCover
             var books = BookServiceWithCover();
             ((BookServiceProxy)(object)books).Book.Editions[1].Images[0].Url = "http://127.0.0.1/private.jpg";
             var config = DispatchProxy.Create<IConfigFileProvider, ConfigFileProviderProxy>();
-            var httpClient = DispatchProxy.Create<IHttpClient, HttpClientProxy>();
+            var httpClient = DispatchProxy.Create<ICoverHttpClient, HttpClientProxy>();
             var proxy = new NzbDrone.Core.MediaCover.MediaCoverProxy(httpClient, config, null, new CacheManager());
             var mapper = new MediaCoverProxyMapper(proxy, books, Logger);
 
@@ -449,7 +449,7 @@ namespace Chaptarr.Core.Test.MediaCover
         public void remote_image_download_should_enforce_a_size_limit_while_streaming()
         {
             var config = DispatchProxy.Create<IConfigFileProvider, ConfigFileProviderProxy>();
-            var httpClient = DispatchProxy.Create<IHttpClient, HttpClientProxy>();
+            var httpClient = DispatchProxy.Create<ICoverHttpClient, HttpClientProxy>();
             ((HttpClientProxy)(object)httpClient).WriteOversizedResponse = true;
             var proxy = new NzbDrone.Core.MediaCover.MediaCoverProxy(httpClient, config, null, new CacheManager());
             var proxyUrl = proxy.RegisterUrl("https://1.1.1.1/cover.jpg");
@@ -464,7 +464,7 @@ namespace Chaptarr.Core.Test.MediaCover
         public void remote_proxy_should_never_return_known_placeholder_bytes()
         {
             var config = DispatchProxy.Create<IConfigFileProvider, ConfigFileProviderProxy>();
-            var httpClient = DispatchProxy.Create<IHttpClient, HttpClientProxy>();
+            var httpClient = DispatchProxy.Create<ICoverHttpClient, HttpClientProxy>();
             ((HttpClientProxy)(object)httpClient).ResponseData = Convert.FromBase64String(MediaCoverRenditionFixture.MascotWebpBase64);
             var proxy = new NzbDrone.Core.MediaCover.MediaCoverProxy(httpClient, config, null, new CacheManager());
             const string remoteUrl = "https://1.1.1.1/provider-default.jpg";
@@ -500,7 +500,7 @@ namespace Chaptarr.Core.Test.MediaCover
         public void upstream_http_error_should_return_not_found_without_default_error_logging()
         {
             var config = DispatchProxy.Create<IConfigFileProvider, ConfigFileProviderProxy>();
-            var httpClient = DispatchProxy.Create<IHttpClient, HttpClientProxy>();
+            var httpClient = DispatchProxy.Create<ICoverHttpClient, HttpClientProxy>();
             var client = (HttpClientProxy)(object)httpClient;
             client.FailureStatusCode = HttpStatusCode.Forbidden;
             var proxy = new NzbDrone.Core.MediaCover.MediaCoverProxy(httpClient, config, null, new CacheManager());
@@ -517,7 +517,7 @@ namespace Chaptarr.Core.Test.MediaCover
         public void upstream_network_failure_should_return_not_found()
         {
             var config = DispatchProxy.Create<IConfigFileProvider, ConfigFileProviderProxy>();
-            var httpClient = DispatchProxy.Create<IHttpClient, HttpClientProxy>();
+            var httpClient = DispatchProxy.Create<ICoverHttpClient, HttpClientProxy>();
             var client = (HttpClientProxy)(object)httpClient;
             client.NetworkFailureStatus = WebExceptionStatus.Timeout;
             var proxy = new NzbDrone.Core.MediaCover.MediaCoverProxy(httpClient, config, null, new CacheManager());

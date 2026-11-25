@@ -1,10 +1,8 @@
-using System;
 using System.Diagnostics;
 using System.Net;
-using System.Net.Sockets;
-using System.Threading;
-using System.Threading.Tasks;
+using Chaptarr.Core.Test.Common;
 using NUnit.Framework;
+using NzbDrone.Core.Configuration;
 using NzbDrone.Core.MediaCover;
 
 namespace Chaptarr.Core.Test.MediaCover
@@ -12,60 +10,74 @@ namespace Chaptarr.Core.Test.MediaCover
     [TestFixture]
     public class MediaCoverUrlSafetyPolicyFixture
     {
-        [TestCase("1.1.1.1", true)]
-        [TestCase("127.0.0.1", false)]
-        [TestCase("192.168.1.1", false)]
-        [TestCase("::1", false)]
-        public void resolved_addresses_keep_the_existing_private_address_boundary(string address, bool allowed)
-        {
-            var calls = 0;
-            var result = MediaCoverUrlSafetyPolicy.TryGetSafeImageUrl("https://cover.example/image", null, out var safe, out var reason,
-                resolve: (host, token) =>
-                {
-                    calls++;
-                    Assert.That(host, Is.EqualTo("cover.example"));
-                    Assert.That(token.CanBeCanceled, Is.True);
-                    return Task.FromResult(new[] { IPAddress.Parse(address) });
-                });
-            Assert.That(result, Is.EqualTo(allowed));
-            Assert.That(calls, Is.EqualTo(1));
-            Assert.That(safe, allowed ? Is.EqualTo("https://cover.example/image") : Is.Null);
-            Assert.That(reason, allowed ? Is.Null : Is.EqualTo("private_or_local_address"));
-        }
-
         [Test]
-        public void unresolved_host_fails_closed_without_waiting_forever()
+        public void public_hostname_is_accepted_without_a_dns_lookup()
         {
-            var neverCompletes = new TaskCompletionSource<IPAddress[]>();
-            CancellationToken resolverToken = default;
             var watch = Stopwatch.StartNew();
-            var safe = MediaCoverUrlSafetyPolicy.TryGetSafeImageUrl("https://cover.example/image", null, out var url, out var reason,
-                resolve: (_, token) => { resolverToken = token; return neverCompletes.Task; });
-            Assert.That(safe, Is.False);
-            Assert.That(url, Is.Null);
-            Assert.That(reason, Is.EqualTo("dns_lookup_timed_out"));
-            Assert.That(resolverToken.IsCancellationRequested, Is.True);
-            Assert.That(watch.Elapsed, Is.LessThan(TimeSpan.FromSeconds(10)));
+
+            var safe = MediaCoverUrlSafetyPolicy.TryGetSafeImageUrl("https://cover.invalid/image.jpg", null, out var url, out var reason);
+
+            Assert.That(safe, Is.True, "a name that can never resolve must not be treated as unsafe");
+            Assert.That(url, Is.EqualTo("https://cover.invalid/image.jpg"));
+            Assert.That(reason, Is.Null);
+            Assert.That(watch.ElapsedMilliseconds, Is.LessThan(500));
         }
 
-        [Test]
-        public void caller_cancellation_is_propagated_instead_of_becoming_an_unsafe_url_verdict()
+        [TestCase("http://127.0.0.1/cover.jpg", "private_or_local_address")]
+        [TestCase("http://2130706433/cover.jpg", "private_or_local_address")]
+        [TestCase("http://0x7f000001/cover.jpg", "private_or_local_address")]
+        [TestCase("http://10.0.0.1/cover.jpg", "private_or_local_address")]
+        [TestCase("http://192.168.1.1/cover.jpg", "private_or_local_address")]
+        [TestCase("http://169.254.169.254/cover.jpg", "private_or_local_address")]
+        [TestCase("http://[::1]/cover.jpg", "private_or_local_address")]
+        [TestCase("http://[::ffff:127.0.0.1]/cover.jpg", "private_or_local_address")]
+        [TestCase("http://[::ffff:10.0.0.1]/cover.jpg", "private_or_local_address")]
+        [TestCase("http://[64:ff9b::a00:1]/cover.jpg", "private_or_local_address")]
+        [TestCase("http://[fe80::1]/cover.jpg", "private_or_local_address")]
+        [TestCase("http://[fd00::1]/cover.jpg", "private_or_local_address")]
+        [TestCase("http://localhost/cover.jpg", "private_or_local_address")]
+        [TestCase("http://LOCALHOST./cover.jpg", "private_or_local_address")]
+        [TestCase("http://images.localhost/cover.jpg", "private_or_local_address")]
+        [TestCase("http://metadata.google.internal/cover.jpg", "cloud_metadata_host")]
+        [TestCase("http://metadata.google.internal./cover.jpg", "cloud_metadata_host")]
+        [TestCase("http://user:pass@cover.example/cover.jpg", "userinfo_not_allowed")]
+        [TestCase("ftp://cover.example/cover.jpg", "invalid_scheme")]
+        [TestCase("file:///etc/passwd", "invalid_scheme")]
+        [TestCase("not a url", "invalid_url")]
+        [TestCase("", "empty_url")]
+        public void rejects_urls_that_are_unsafe_without_resolving_them(string url, string expectedReason)
         {
-            using var cancelled = new CancellationTokenSource();
-            Assert.Catch<OperationCanceledException>(() => MediaCoverUrlSafetyPolicy.TryGetSafeImageUrl(
-                "https://cover.example/image", null, out _, out _, cancelled.Token,
-                (_, token) => { cancelled.Cancel(); return Task.FromCanceled<IPAddress[]>(token); }));
+            Assert.That(MediaCoverUrlSafetyPolicy.TryGetSafeImageUrl(url, null, out var safeUrl, out var reason), Is.False);
+            Assert.That(safeUrl, Is.Null);
+            Assert.That(reason, Is.EqualTo(expectedReason));
         }
 
-        [Test]
-        public void dns_failure_and_no_records_are_distinct()
+        [TestCase("http://192.168.1.20/cover.jpg", "http://192.168.1.20:8080")]
+        [TestCase("http://[fd00::5]/cover.jpg", "http://[fd00::5]:8080")]
+        [TestCase("http://localhost/cover.jpg", "http://127.0.0.1:8080")]
+        [TestCase("http://127.0.0.1/cover.jpg", "http://localhost:8080")]
+        public void configured_metadata_host_stays_trusted(string url, string metadataServer)
         {
-            Assert.That(MediaCoverUrlSafetyPolicy.TryGetSafeImageUrl("https://cover.example/image", null, out _, out var failure,
-                resolve: (_, _) => Task.FromException<IPAddress[]>(new SocketException())), Is.False);
-            Assert.That(failure, Is.EqualTo("dns_lookup_failed"));
-            Assert.That(MediaCoverUrlSafetyPolicy.TryGetSafeImageUrl("https://cover.example/image", null, out _, out var missing,
-                resolve: (_, _) => Task.FromResult(Array.Empty<IPAddress>())), Is.False);
-            Assert.That(missing, Is.EqualTo("dns_no_records"));
+            Assert.That(MediaCoverUrlSafetyPolicy.TryGetSafeImageUrl(url, Config(metadataServer), out _, out var reason), Is.True, reason);
+        }
+
+        [TestCase("cover.example", "10.0.0.5", null, false)]
+        [TestCase("cover.example", "127.0.0.1", null, false)]
+        [TestCase("cover.example", "::ffff:192.168.0.1", null, false)]
+        [TestCase("cover.example", "1.1.1.1", null, true)]
+        [TestCase("localhost", "127.0.0.1", null, false)]
+        [TestCase("192.168.1.20", "192.168.1.20", "http://192.168.1.20:8080", true)]
+        [TestCase("fd00::5", "fd00::5", "http://[fd00::5]:8080", true)]
+        [TestCase("cover.example", "192.168.1.20", "http://192.168.1.20:8080", false)]
+        public void connect_targets_follow_the_private_network_rule(string host, string address, string metadataServer, bool allowed)
+        {
+            Assert.That(MediaCoverUrlSafetyPolicy.IsAllowedConnectTarget(host, IPAddress.Parse(address), Config(metadataServer)), Is.EqualTo(allowed));
+        }
+
+        private static IConfigService Config(string metadataServer)
+        {
+            return InterfaceProxy.Proxy<IConfigService>((method, _) =>
+                method.Name == "get_MetadataServerUrl" ? metadataServer : throw new AssertionException(method.Name));
         }
     }
 }
