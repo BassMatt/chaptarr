@@ -33,6 +33,7 @@ namespace Chaptarr.Core.Test.Books
             public int CleanupCount { get; private set; }
             public List<int> DeletedIds { get; } = new();
             public List<string> RetryReasons { get; } = new();
+            public List<bool> RetryAwaitingMetadata { get; } = new();
             public bool DeleteIfUnchangedResult { get; set; } = true;
             public PendingAuthorImport CurrentByProviderId { get; set; }
             public bool UpdateStatusResult { get; set; } = true;
@@ -75,11 +76,12 @@ namespace Chaptarr.Core.Test.Books
                 return true;
             }
 
-            public void ScheduleRetry(PendingAuthorImport item, string error)
+            public void ScheduleRetry(PendingAuthorImport item, string error, bool awaitingMetadata = false)
             {
                 item.OverallStatus = PendingImportStatus.Retrying;
                 item.LastError = error;
                 RetryReasons.Add(error);
+                RetryAwaitingMetadata.Add(awaitingMetadata);
             }
             public bool IsActiveRequest(int id, long version) => true;
             public bool SaveProgress(PendingAuthorImport item, PendingAuthorImport previous) => true;
@@ -940,6 +942,7 @@ namespace Chaptarr.Core.Test.Books
 
             Assert.That(pending.OverallStatus, Is.EqualTo(PendingImportStatus.Retrying));
             Assert.That(pending.LastError, Does.Contain("still being prepared"));
+            Assert.That(pendingImportService.RetryAwaitingMetadata, Is.EqualTo(new[] { true }));
             Assert.That(pendingImportService.DeletedIds, Does.Not.Contain(pending.Id));
             Assert.That(commandQueue.Pushed.OfType<BookSearchCommand>(), Is.Empty);
             Assert.That(eventAggregator.Events.OfType<PendingAuthorImportFailedEvent>(), Is.Empty);
