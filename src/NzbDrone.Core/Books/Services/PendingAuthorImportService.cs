@@ -28,7 +28,7 @@ namespace NzbDrone.Core.Books.Services
         PendingAuthorImport GetByProviderId(string providerId);
         bool UpdateStatus(PendingAuthorImport item, PendingImportStatus status, string error, long? expectedVersion = null);
         bool SaveProgress(PendingAuthorImport item, PendingAuthorImport previous);
-        void ScheduleRetry(PendingAuthorImport item, string error);
+        void ScheduleRetry(PendingAuthorImport item, string error, bool awaitingMetadata = false);
         void Cancel(int id);
         bool IsActiveRequest(int id, long version);
         void RetryNow(int id);
@@ -402,6 +402,7 @@ namespace NzbDrone.Core.Books.Services
                         {
                             // Changed request intent needs processing; a display-name update preserves the schedule.
                             existing.NextAttemptAt = DateTime.UtcNow;
+                            existing.AttemptCount = 0;
                             existing.UpdateOverallStatus();
                         }
                         var expectedVersion = existing.Version;
@@ -1009,7 +1010,7 @@ namespace NzbDrone.Core.Books.Services
             string.Equals(left.WorkProviderId, right.WorkProviderId, StringComparison.OrdinalIgnoreCase) &&
             string.Equals(left.EditionProviderId, right.EditionProviderId, StringComparison.OrdinalIgnoreCase);
 
-        public void ScheduleRetry(PendingAuthorImport item, string error)
+        public void ScheduleRetry(PendingAuthorImport item, string error, bool awaitingMetadata = false)
         {
             while (true)
             {
@@ -1025,7 +1026,15 @@ namespace NzbDrone.Core.Books.Services
                 current.MaxAttempts = 0;
                 current.LastAttemptAt = DateTime.UtcNow;
                 current.LastError = error;
-                current.NextAttemptAt = AuthorRetrySchedule.NextAttempt(current.AttemptCount);
+                var nextAttempt = awaitingMetadata
+                    ? AuthorRetrySchedule.NextPendingImportAttempt(current.AttemptCount)
+                    : AuthorRetrySchedule.NextAttempt(current.AttemptCount);
+
+                // A request merged in while this attempt ran asked to be processed sooner; this
+                // attempt never saw it, so its failure must not push that request back.
+                current.NextAttemptAt = current.Version == item.Version || current.NextAttemptAt > nextAttempt
+                    ? nextAttempt
+                    : current.NextAttemptAt;
                 current.OverallStatus = PendingImportStatus.Retrying;
                 current.UpdatedAt = DateTime.UtcNow;
 
@@ -1362,6 +1371,7 @@ namespace NzbDrone.Core.Books.Services
                 }
 
                 item.NextAttemptAt = DateTime.UtcNow;
+                item.AttemptCount = 0;
                 item.OverallStatus = PendingImportStatus.Retrying;
                 item.MaxAttempts = 0;
                 item.UpdatedAt = DateTime.UtcNow;

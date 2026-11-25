@@ -197,7 +197,7 @@ namespace Chaptarr.Core.Test.MediaFiles
             public PendingAuthorImport GetByProviderId(string providerId) => throw new NotImplementedException();
             public bool UpdateStatus(PendingAuthorImport item, PendingImportStatus status, string error, long? expectedVersion = null) => throw new NotImplementedException();
             public bool SaveProgress(PendingAuthorImport item, PendingAuthorImport previous) => throw new NotImplementedException();
-            public void ScheduleRetry(PendingAuthorImport item, string error) => throw new NotImplementedException();
+            public void ScheduleRetry(PendingAuthorImport item, string error, bool awaitingMetadata = false) => throw new NotImplementedException();
             public bool IsActiveRequest(int id, long version) => true;
             public void Cancel(int id) => throw new NotImplementedException();
             public bool CancelIfQueued(int id) => throw new NotImplementedException();

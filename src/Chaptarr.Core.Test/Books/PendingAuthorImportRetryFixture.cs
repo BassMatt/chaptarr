@@ -200,6 +200,57 @@ namespace Chaptarr.Core.Test.Books
         }
 
         [Test]
+        public void long_metadata_wait_backs_off_but_other_failures_keep_the_five_minute_ceiling()
+        {
+            var repository = DispatchProxy.Create<IPendingAuthorImportRepository, RepositoryProxy>();
+            var repositoryProxy = (RepositoryProxy)repository;
+            var subject = new PendingAuthorImportService(repository, DispatchProxy.Create<IAuthorService, AuthorServiceProxy>(), new RecordingEventAggregator(), LogManager.GetCurrentClassLogger());
+            var item = new PendingAuthorImport
+            {
+                Id = 42, ProviderId = "gr:42", AttemptCount = 9915, Version = 3,
+                AudiobookStatus = PendingImportStatus.Pending, EbookStatus = PendingImportStatus.NotRequested,
+                OverallStatus = PendingImportStatus.Retrying
+            };
+            repositoryProxy.Active = item;
+            var before = DateTime.UtcNow;
+
+            subject.ScheduleRetry(item, "Requested work is not yet present in the authoritative author catalog.", awaitingMetadata: true);
+
+            Assert.That(item.NextAttemptAt, Is.InRange(before.AddHours(4.7), DateTime.UtcNow.AddHours(7.3)));
+
+            subject.ScheduleRetry(item, "connection refused");
+
+            Assert.That(item.AttemptCount, Is.EqualTo(9917));
+            Assert.That(item.NextAttemptAt, Is.InRange(DateTime.UtcNow.AddMinutes(3.9), DateTime.UtcNow.AddMinutes(6.1)));
+        }
+
+        [Test]
+        public void failed_attempt_should_not_push_back_a_request_merged_while_it_ran()
+        {
+            var repository = DispatchProxy.Create<IPendingAuthorImportRepository, RepositoryProxy>();
+            var repositoryProxy = (RepositoryProxy)repository;
+            var subject = new PendingAuthorImportService(repository, DispatchProxy.Create<IAuthorService, AuthorServiceProxy>(), new RecordingEventAggregator(), LogManager.GetCurrentClassLogger());
+            var mergedAt = DateTime.UtcNow;
+            repositoryProxy.Active = new PendingAuthorImport
+            {
+                Id = 42, ProviderId = "gr:42", AttemptCount = 0, Version = 4, NextAttemptAt = mergedAt,
+                AudiobookStatus = PendingImportStatus.Pending, EbookStatus = PendingImportStatus.NotRequested,
+                OverallStatus = PendingImportStatus.Pending
+            };
+            var staleWorker = new PendingAuthorImport
+            {
+                Id = 42, ProviderId = "gr:42", AttemptCount = 9916, Version = 3,
+                AudiobookStatus = PendingImportStatus.Pending, EbookStatus = PendingImportStatus.NotRequested,
+                OverallStatus = PendingImportStatus.Retrying
+            };
+
+            subject.ScheduleRetry(staleWorker, "Requested work is not yet present in the authoritative author catalog.", awaitingMetadata: true);
+
+            Assert.That(repositoryProxy.Active.NextAttemptAt, Is.EqualTo(mergedAt));
+            Assert.That(repositoryProxy.Active.AttemptCount, Is.EqualTo(1));
+        }
+
+        [Test]
         public void expected_version_status_update_should_leave_a_newer_merged_request_unchanged()
         {
             var repository = DispatchProxy.Create<IPendingAuthorImportRepository, RepositoryProxy>();
@@ -982,6 +1033,29 @@ namespace Chaptarr.Core.Test.Books
             Assert.That(repositoryProxy.Active.Version, Is.EqualTo(9));
             Assert.That(repositoryProxy.FencedUpdateCount, Is.EqualTo(2));
             Assert.That(repositoryProxy.UnfencedUpdateCount, Is.Zero);
+        }
+
+        [Test]
+        public void retry_now_restarts_the_backoff_so_one_more_failure_retries_soon()
+        {
+            var repository = DispatchProxy.Create<IPendingAuthorImportRepository, RepositoryProxy>();
+            var repositoryProxy = (RepositoryProxy)repository;
+            var item = new PendingAuthorImport
+            {
+                Id = 42, ProviderId = "gr:42", AttemptCount = 9916, Version = 2,
+                AudiobookStatus = PendingImportStatus.Pending, EbookStatus = PendingImportStatus.NotRequested,
+                OverallStatus = PendingImportStatus.Retrying, NextAttemptAt = DateTime.UtcNow.AddHours(5)
+            };
+            repositoryProxy.Active = item;
+            var subject = new PendingAuthorImportService(repository, DispatchProxy.Create<IAuthorService, AuthorServiceProxy>(), new RecordingEventAggregator(), LogManager.GetCurrentClassLogger());
+
+            subject.RetryNow(42);
+            Assert.That(repositoryProxy.Active.AttemptCount, Is.Zero);
+
+            subject.ScheduleRetry(repositoryProxy.Active, "Requested work is not yet present in the authoritative author catalog.", awaitingMetadata: true);
+
+            Assert.That(repositoryProxy.Active.AttemptCount, Is.EqualTo(1));
+            Assert.That(repositoryProxy.Active.NextAttemptAt, Is.LessThan(DateTime.UtcNow.AddMinutes(2)));
         }
     }
 }

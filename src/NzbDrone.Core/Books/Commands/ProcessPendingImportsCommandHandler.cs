@@ -487,7 +487,7 @@ namespace NzbDrone.Core.Books.Commands
                     _logger.Warn("Pending author import {0} retained: {1}", item.ProviderId, reason);
                     if (originalAuthorFailure is AuthorTerminalException)
                         _logger.Warn("Original author {0} has a declared terminal outcome; its requested works still require preparation", item.ProviderId);
-                    _pendingImportService.ScheduleRetry(item, reason);
+                    _pendingImportService.ScheduleRetry(item, reason, awaitingMetadata: true);
                     return item;
                 }
                 if (originalAuthorFailure != null && independentAuthorDemand)
@@ -570,13 +570,13 @@ namespace NzbDrone.Core.Books.Commands
             {
                 // Author still not available, schedule retry
                 _logger.Warn("Author {0} not yet available on metadata server, scheduling retry", item.ProviderId);
-                _pendingImportService.ScheduleRetry(item, PendingAuthorImportRetryReason.AuthorNotYetAvailable);
+                _pendingImportService.ScheduleRetry(item, PendingAuthorImportRetryReason.AuthorNotYetAvailable, awaitingMetadata: true);
             }
             catch (BookNotFoundException ex)
             {
                 var reason = $"Requested book {ex.Message} is still being prepared by the metadata server.";
                 _logger.Warn("Pending book request for author {0} is not ready; scheduling retry", item.ProviderId);
-                _pendingImportService.ScheduleRetry(item, reason);
+                _pendingImportService.ScheduleRetry(item, reason, awaitingMetadata: true);
             }
             catch (ValidationException ex) when (ex.Errors.Any(error => error.ErrorCode == AuthorLibraryService.ImportListAuthorExcludedErrorCode))
             {
