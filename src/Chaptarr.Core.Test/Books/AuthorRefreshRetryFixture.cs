@@ -4,6 +4,7 @@ using System.Linq;
 using System.Net;
 using System.Threading;
 using Chaptarr.Core.Test.Common;
+using Chaptarr.Core.Test.MetadataSource;
 using NLog;
 using NUnit.Framework;
 using NzbDrone.Core.Books;
@@ -233,7 +234,7 @@ namespace Chaptarr.Core.Test.Books
                 var health = new MetadataServerHealthService(Logger);
                 var config = InterfaceProxy.Proxy<NzbDrone.Core.Configuration.IConfigService>((_, _) => "https://metadata.test");
                 var gate = new MetadataServerHealthGate(config, health, Logger);
-                health.ReportFailure(gate.SourceName, new WebException("connection unavailable"));
+                health.TripCircuit(gate.SourceName, new WebException("connection unavailable"));
                 var state = health.GetStatus(gate.SourceName);
                 var fetches = 0;
                 var catalogReads = 0;

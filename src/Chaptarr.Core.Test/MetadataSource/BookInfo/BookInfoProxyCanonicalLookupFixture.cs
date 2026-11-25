@@ -427,7 +427,7 @@ namespace Chaptarr.Core.Test.MetadataSource.BookInfo
             var logger = LogManager.GetCurrentClassLogger();
             var healthService = new MetadataServerHealthService(logger);
             var healthGate = new MetadataServerHealthGate(configService, healthService, logger);
-            healthService.ReportFailure(healthGate.SourceName, new WebException("metadata server unavailable"));
+            healthService.TripCircuit(healthGate.SourceName, new WebException("metadata server unavailable"));
 
             var proxy = new BookInfoProxy(httpClient,
                 cachedHttpClient: null,
@@ -458,7 +458,7 @@ namespace Chaptarr.Core.Test.MetadataSource.BookInfo
             var logger = LogManager.GetCurrentClassLogger();
             var healthService = new MetadataServerHealthService(logger);
             var healthGate = new MetadataServerHealthGate(configService, healthService, logger);
-            healthService.ReportFailure(healthGate.SourceName, new WebException("metadata server unavailable"));
+            healthService.TripCircuit(healthGate.SourceName, new WebException("metadata server unavailable"));
 
             var proxy = new BookInfoProxy(httpClient,
                 cachedHttpClient: null,

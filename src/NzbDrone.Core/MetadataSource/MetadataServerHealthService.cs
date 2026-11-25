@@ -12,6 +12,8 @@ namespace NzbDrone.Core.MetadataSource
         private static readonly TimeSpan _probeTimeout = TimeSpan.FromMinutes(2);
         public static readonly TimeSpan DefaultRateLimitRetryAfter = TimeSpan.FromSeconds(60);
         public static readonly TimeSpan MaxRateLimitRetryAfter = TimeSpan.FromMinutes(15);
+        public const int FailureThreshold = 3;
+        public static readonly TimeSpan FailureWindow = TimeSpan.FromMinutes(2);
 
         private static readonly TimeSpan[] _metadataServerBackoff =
         {
@@ -66,12 +68,43 @@ namespace NzbDrone.Core.MetadataSource
             lock (_syncRoot)
             {
                 var status = GetOrCreateStatus(sourceName);
+                var now = DateTime.UtcNow;
 
-                status.LastFailure = DateTime.UtcNow;
+                // Once the circuit is open, only the recovery probe's result counts. Failures from
+                // requests that started earlier must not escalate the backoff or replace a rate-limit window.
+                if (!status.IsHealthy && !status.ProbeInProgress)
+                {
+                    _logger.Debug("Metadata server {0} is already paused; ignoring failure from an earlier request: {1}",
+                                  sourceName,
+                                  exception?.Message);
+                    return;
+                }
+
+                if (status.IsHealthy &&
+                    status.LastFailure.HasValue &&
+                    now - status.LastFailure.Value > FailureWindow)
+                {
+                    status.ConsecutiveFailures = 0;
+                }
+
+                status.LastFailure = now;
                 status.ConsecutiveFailures++;
                 status.LastErrorMessage = exception?.Message;
                 status.ProbeInProgress = false;
                 status.ProbeStartedAt = null;
+
+                if (status.IsHealthy)
+                {
+                    if (status.ConsecutiveFailures < FailureThreshold)
+                    {
+                        _logger.Debug("Metadata server {0} request failed ({1} of {2} before pausing requests): {3}",
+                                      sourceName,
+                                      status.ConsecutiveFailures,
+                                      FailureThreshold,
+                                      exception?.Message);
+                        return;
+                    }
+                }
 
                 OpenCircuit(status, sourceName, exception?.Message);
             }

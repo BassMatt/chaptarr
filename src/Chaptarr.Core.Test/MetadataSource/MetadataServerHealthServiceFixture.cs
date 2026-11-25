@@ -18,7 +18,7 @@ namespace Chaptarr.Core.Test.MetadataSource
         {
             var service = new MetadataServerHealthService(LogManager.GetCurrentClassLogger());
             Assert.That(service.CanBeginRequest(Source, out _), Is.True);
-            service.ReportFailure(Source, new WebException("unavailable"));
+            service.TripCircuit(Source, new WebException("unavailable"));
             Assert.That(service.CanBeginRequest(Source, out var wait), Is.False);
             Assert.That(wait.TotalSeconds, Is.InRange(55, 60));
             var status = service.GetStatus(Source);
@@ -44,7 +44,7 @@ namespace Chaptarr.Core.Test.MetadataSource
 
             Assert.That(service.TryBeginRequest(Source, out _), Is.True);
 
-            service.ReportFailure(Source, new WebException("edge returned 525"));
+            service.TripCircuit(Source, new WebException("edge returned 525"));
 
             Assert.That(service.TryBeginRequest(Source, out var retryAfter), Is.False);
             Assert.That(retryAfter.TotalSeconds, Is.InRange(55, 60));
@@ -63,7 +63,7 @@ namespace Chaptarr.Core.Test.MetadataSource
 
             Assert.That(service.CanAttemptWithoutProbe(Source, out _), Is.True);
 
-            service.ReportFailure(Source, new WebException("edge returned 525"));
+            service.TripCircuit(Source, new WebException("edge returned 525"));
             var status = service.GetStatus(Source);
             status.RateLimitedUntil = DateTime.UtcNow.AddSeconds(-1);
 
@@ -78,7 +78,7 @@ namespace Chaptarr.Core.Test.MetadataSource
         {
             var service = new MetadataServerHealthService(LogManager.GetCurrentClassLogger());
 
-            service.ReportFailure(Source, new WebException("first failure"));
+            service.TripCircuit(Source, new WebException("edge returned 525"));
             var status = service.GetStatus(Source);
             status.RateLimitedUntil = DateTime.UtcNow.AddSeconds(-1);
 
@@ -101,7 +101,7 @@ namespace Chaptarr.Core.Test.MetadataSource
         {
             var service = new MetadataServerHealthService(LogManager.GetCurrentClassLogger());
 
-            service.ReportFailure(Source, new WebException("edge returned 525"));
+            service.TripCircuit(Source, new WebException("edge returned 525"));
             Assert.That(service.TryBeginRequest(Source, out _), Is.False);
 
             service.Reset(Source);
@@ -113,7 +113,137 @@ namespace Chaptarr.Core.Test.MetadataSource
             Assert.That(service.TryBeginRequest(Source, out _), Is.True);
 
             service.ReportFailure(Source, new WebException("still down"));
-            Assert.That(service.TryBeginRequest(Source, out _), Is.False, "a post-reset failure must reopen the circuit");
+            Assert.That(service.TryBeginRequest(Source, out _), Is.True, "a reset must clear the earlier failure streak");
+
+            service.TripCircuit(Source, new WebException("edge returned 525"));
+            Assert.That(service.TryBeginRequest(Source, out _), Is.False, "repeated post-reset failures must reopen the circuit");
+        }
+
+        [Test]
+        public void should_stay_closed_below_failure_threshold()
+        {
+            var service = new MetadataServerHealthService(LogManager.GetCurrentClassLogger());
+
+            for (var i = 1; i < MetadataServerHealthService.FailureThreshold; i++)
+            {
+                service.ReportFailure(Source, new WebException("Resource temporarily unavailable"));
+            }
+
+            var status = service.GetStatus(Source);
+            Assert.That(status.IsHealthy, Is.True);
+            Assert.That(status.RateLimitedUntil, Is.Null);
+            Assert.That(status.ConsecutiveFailures, Is.EqualTo(MetadataServerHealthService.FailureThreshold - 1));
+            Assert.That(service.TryBeginRequest(Source, out _), Is.True);
+            Assert.That(service.CanAttemptWithoutProbe(Source, out _), Is.True);
+        }
+
+        [Test]
+        public void success_should_reset_failure_streak_before_threshold()
+        {
+            var service = new MetadataServerHealthService(LogManager.GetCurrentClassLogger());
+
+            for (var i = 1; i < MetadataServerHealthService.FailureThreshold; i++)
+            {
+                service.ReportFailure(Source, new WebException("Resource temporarily unavailable"));
+            }
+
+            service.ReportSuccess(Source);
+            service.ReportFailure(Source, new WebException("Resource temporarily unavailable"));
+
+            var status = service.GetStatus(Source);
+            Assert.That(status.IsHealthy, Is.True);
+            Assert.That(status.ConsecutiveFailures, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void failures_outside_window_should_not_accumulate()
+        {
+            var service = new MetadataServerHealthService(LogManager.GetCurrentClassLogger());
+            var status = service.GetStatus(Source);
+
+            for (var i = 0; i < MetadataServerHealthService.FailureThreshold * 2; i++)
+            {
+                service.ReportFailure(Source, new WebException("Resource temporarily unavailable"));
+                status.LastFailure = DateTime.UtcNow - MetadataServerHealthService.FailureWindow - TimeSpan.FromSeconds(1);
+            }
+
+            Assert.That(status.IsHealthy, Is.True);
+            Assert.That(status.ConsecutiveFailures, Is.EqualTo(1));
+            Assert.That(service.TryBeginRequest(Source, out _), Is.True);
+        }
+
+        [Test]
+        public void in_flight_failures_after_circuit_opens_should_not_escalate_backoff()
+        {
+            var service = new MetadataServerHealthService(LogManager.GetCurrentClassLogger());
+
+            service.TripCircuit(Source, new WebException("edge returned 525"));
+            var status = service.GetStatus(Source);
+            var openUntil = status.RateLimitedUntil;
+
+            service.ReportFailure(Source, new WebException("in-flight request failed"));
+            service.ReportFailure(Source, new WebException("in-flight request failed"));
+
+            Assert.That(status.EscalationLevel, Is.EqualTo(1));
+            Assert.That(status.RateLimitedUntil, Is.EqualTo(openUntil));
+            Assert.That(service.TryBeginRequest(Source, out var retryAfter), Is.False);
+            Assert.That(retryAfter.TotalSeconds, Is.InRange(55, 60));
+        }
+
+        [Test]
+        public void late_failure_after_cooldown_expires_should_not_escalate_without_a_probe()
+        {
+            var service = new MetadataServerHealthService(LogManager.GetCurrentClassLogger());
+
+            service.TripCircuit(Source, new WebException("edge returned 525"));
+            var status = service.GetStatus(Source);
+            status.RateLimitedUntil = DateTime.UtcNow.AddSeconds(-1);
+
+            service.ReportFailure(Source, new WebException("old request timed out"));
+
+            Assert.That(status.EscalationLevel, Is.EqualTo(1));
+            Assert.That(service.TryBeginRequest(Source, out _), Is.True, "the recovery probe must still be available");
+
+            service.ReportFailure(Source, new WebException("probe failed"));
+
+            Assert.That(status.EscalationLevel, Is.EqualTo(2));
+            Assert.That(service.TryBeginRequest(Source, out var retryAfter), Is.False);
+            Assert.That(retryAfter.TotalSeconds, Is.InRange(175, 180));
+        }
+
+        [Test]
+        public void transport_failure_should_not_shorten_rate_limit_window()
+        {
+            var service = new MetadataServerHealthService(LogManager.GetCurrentClassLogger());
+
+            service.ReportRateLimited(Source, TimeSpan.FromMinutes(10));
+            service.ReportFailure(Source, new WebException("in-flight request failed"));
+
+            var status = service.GetStatus(Source);
+            Assert.That(status.IsRateLimited, Is.True);
+            Assert.That(status.LastErrorMessage, Is.EqualTo("Rate limited"));
+            Assert.That(status.ConsecutiveFailures, Is.Zero);
+            Assert.That(service.TryBeginRequest(Source, out var retryAfter), Is.False);
+            Assert.That(retryAfter.TotalMinutes, Is.InRange(9.9, 10));
+        }
+
+        [Test]
+        public void failed_probe_after_rate_limit_should_reopen_circuit()
+        {
+            var service = new MetadataServerHealthService(LogManager.GetCurrentClassLogger());
+
+            service.ReportRateLimited(Source);
+            var status = service.GetStatus(Source);
+            status.RateLimitedUntil = DateTime.UtcNow.AddSeconds(-1);
+
+            Assert.That(service.TryBeginRequest(Source, out _), Is.True);
+
+            service.ReportFailure(Source, new WebException("probe failed"));
+
+            Assert.That(status.IsHealthy, Is.False);
+            Assert.That(status.IsRateLimited, Is.False);
+            Assert.That(service.TryBeginRequest(Source, out var retryAfter), Is.False);
+            Assert.That(retryAfter.TotalSeconds, Is.InRange(55, 60));
         }
 
         [Test]
@@ -162,7 +292,10 @@ namespace Chaptarr.Core.Test.MetadataSource
             var service = new MetadataServerHealthService(LogManager.GetCurrentClassLogger());
             var gate = new MetadataServerHealthGate(ConfigServiceTestProxy.Create(), service, LogManager.GetCurrentClassLogger());
 
-            gate.ReportException(new HttpRequestException("connection refused"));
+            for (var i = 0; i < MetadataServerHealthService.FailureThreshold; i++)
+            {
+                gate.ReportException(new HttpRequestException("connection refused"));
+            }
 
             Assert.That(service.GetStatus(gate.SourceName).IsHealthy, Is.False);
             Assert.That(gate.TryBeginRequest(out _), Is.False);
@@ -173,7 +306,7 @@ namespace Chaptarr.Core.Test.MetadataSource
         {
             var service = new MetadataServerHealthService(LogManager.GetCurrentClassLogger());
             var gate = new MetadataServerHealthGate(ConfigServiceTestProxy.Create(), service, LogManager.GetCurrentClassLogger());
-            service.ReportFailure(gate.SourceName, new HttpRequestException("connection refused"));
+            service.TripCircuit(gate.SourceName, new WebException("edge returned 525"));
             var status = service.GetStatus(gate.SourceName);
             status.RateLimitedUntil = DateTime.UtcNow.AddSeconds(-1);
 
@@ -184,7 +317,7 @@ namespace Chaptarr.Core.Test.MetadataSource
             gate.ReportResponse(new HttpResponse(new HttpRequest(Source), headers, string.Empty, HttpStatusCode.OK));
 
             Assert.That(status.IsHealthy, Is.False);
-            Assert.That(status.ConsecutiveFailures, Is.EqualTo(1));
+            Assert.That(status.ConsecutiveFailures, Is.EqualTo(MetadataServerHealthService.FailureThreshold));
             Assert.That(gate.TryBeginRequest(out _), Is.True);
         }
 

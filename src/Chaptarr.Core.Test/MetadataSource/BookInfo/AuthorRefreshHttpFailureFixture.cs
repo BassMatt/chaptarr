@@ -76,15 +76,22 @@ namespace Chaptarr.Core.Test.MetadataSource.BookInfo
                     Assert.That(saved.SyncFailureCount, Is.EqualTo(healthy ? 4 : 3));
                     Assert.That(saved.ETag, Is.EqualTo("old-etag"));
                     Assert.That(saved.NextSyncNotBefore, Is.InRange(start.AddSeconds(delaySeconds * 0.8), end.AddSeconds(delaySeconds * 1.2)));
-                    Assert.That(health.GetStatus(gate.SourceName).IsHealthy, Is.EqualTo(healthy));
+                    Assert.That(health.GetStatus(gate.SourceName).IsHealthy, Is.EqualTo(status != 429), "only a rate limit opens the circuit on one failure");
+                    Assert.That(health.GetStatus(gate.SourceName).ConsecutiveFailures, Is.EqualTo(healthy || status == 429 ? 0 : 1));
                     Assert.That(health.GetStatus(gate.SourceName).IsRateLimited, Is.EqualTo(status == 429));
                     Assert.That(repository.GetDueForSync(), Is.Empty);
                 });
                 if (!healthy)
                 {
+                    var serverRequests = status == 429 ? 1 : MetadataServerHealthService.FailureThreshold;
+                    for (var i = 1; i < serverRequests; i++)
+                    {
+                        proxy.RefreshAuthorInfo("gr:58", forceRefresh: true);
+                    }
+
                     var held = proxy.RefreshAuthorInfo("gr:58", forceRefresh: true);
                     Assert.That(held.HttpStatus, Is.Null, "A gate refusal has no server response");
-                    Assert.That(requests, Is.EqualTo(1));
+                    Assert.That(requests, Is.EqualTo(serverRequests));
                 }
             });
         }

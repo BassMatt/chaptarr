@@ -276,7 +276,7 @@ namespace Chaptarr.Core.Test.MetadataSource.BookInfo
             var configService = DispatchProxy.Create<IConfigService, ConfigServiceProxy>();
             var healthService = new MetadataServerHealthService(logger);
             var healthGate = new MetadataServerHealthGate(configService, healthService, logger);
-            healthService.ReportFailure(healthGate.SourceName, new WebException("metadata server unavailable"));
+            healthService.TripCircuit(healthGate.SourceName, new WebException("metadata server unavailable"));
 
             var proxy = new BookInfoProxy(httpClient,
                 cachedHttpClient: null,
@@ -300,7 +300,7 @@ namespace Chaptarr.Core.Test.MetadataSource.BookInfo
         }
 
         [Test]
-        public void should_open_metadata_server_circuit_on_v5_bulk_diff_server_error()
+        public void should_open_metadata_server_circuit_after_repeated_v5_bulk_diff_server_errors()
         {
             const string payload = @"{
   ""author"": { ""id"": ""hc:123"", ""name"": ""Test Author"", ""sortName"": ""Author, Test"", ""slug"": ""test-author"", ""ratingAverage"": 0, ""ratingCount"": 0 },
@@ -328,17 +328,25 @@ namespace Chaptarr.Core.Test.MetadataSource.BookInfo
                 cacheManager: new CacheManager(),
                 metadataServerHealthGate: healthGate);
 
-            var response = proxy.GetBulkAuthorChanges(new List<NzbDrone.Core.MetadataSource.BookInfo.V5.V5AuthorETag>
+            var etags = new List<NzbDrone.Core.MetadataSource.BookInfo.V5.V5AuthorETag>
             {
                 new()
                 {
                     RequestedId = "hc:123",
                     ETag = "W/\"v1\""
                 }
-            });
+            };
 
-            Assert.That(response, Is.Null);
-            Assert.That(httpClient.Requests, Has.Count.EqualTo(1));
+            Assert.That(proxy.GetBulkAuthorChanges(etags), Is.Null);
+            Assert.That(healthService.GetStatus(healthGate.SourceName).IsHealthy, Is.True, "a single server error must not open the circuit");
+            Assert.That(healthService.GetStatus(healthGate.SourceName).ConsecutiveFailures, Is.EqualTo(1));
+
+            for (var i = 1; i < MetadataServerHealthService.FailureThreshold; i++)
+            {
+                Assert.That(proxy.GetBulkAuthorChanges(etags), Is.Null);
+            }
+
+            Assert.That(httpClient.Requests, Has.Count.EqualTo(MetadataServerHealthService.FailureThreshold));
             Assert.That(healthService.TryBeginRequest(healthGate.SourceName, out var retryAfter), Is.False);
             Assert.That(retryAfter.TotalSeconds, Is.InRange(55, 60));
         }

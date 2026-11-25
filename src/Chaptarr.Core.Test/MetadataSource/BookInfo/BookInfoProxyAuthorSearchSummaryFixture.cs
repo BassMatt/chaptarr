@@ -295,7 +295,7 @@ namespace Chaptarr.Core.Test.MetadataSource.BookInfo
             var logger = LogManager.GetCurrentClassLogger();
             var healthService = new MetadataServerHealthService(logger);
             var healthGate = new MetadataServerHealthGate(configService, healthService, logger);
-            healthService.ReportFailure(healthGate.SourceName, new TimeoutException("metadata server unavailable"));
+            healthService.TripCircuit(healthGate.SourceName, new TimeoutException("metadata server unavailable"));
             var status = healthService.GetStatus(healthGate.SourceName);
             status.RateLimitedUntil = DateTime.UtcNow.AddSeconds(-1);
             var proxy = new BookInfoProxy(
